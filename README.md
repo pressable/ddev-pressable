@@ -172,11 +172,11 @@ release automatically when a `vX.Y.Z` tag is pushed.
 Use the Ruby helper to cut a version once tests are green on `main`:
 
 ```bash
-bin/release            # patch bump (default), e.g. 1.2.3 -> 1.2.4
-bin/release minor      # 1.2.3 -> 1.3.0
-bin/release major      # 1.2.3 -> 2.0.0
-bin/release 1.5.0      # explicit version
-bin/release --dry-run minor
+.github/scripts/release.rb            # patch bump (default), e.g. 1.2.3 -> 1.2.4
+.github/scripts/release.rb minor      # 1.2.3 -> 1.3.0
+.github/scripts/release.rb major      # 1.2.3 -> 2.0.0
+.github/scripts/release.rb 1.5.0      # explicit version
+.github/scripts/release.rb --dry-run minor
 ```
 
 It validates that the tree is clean and on `main`, computes the next version from

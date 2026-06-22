@@ -27,7 +27,7 @@ reviews:
         DDEV config overlay merged into the project config. The post-import-db
         hook rewrites the production URL to the local DDEV URL after a pull, via
         `wp search-replace`. Review the hook's correctness and idempotency.
-    - path: "bin/release"
+    - path: ".github/scripts/release.rb"
       instructions: |
         A plain Ruby release helper. There is no Rails and no RuboCop config in
         this repo, so review for correctness of the git-tag / semver logic and

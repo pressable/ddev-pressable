@@ -2,7 +2,8 @@ name: release
 
 # Publishes a GitHub release whenever a semver tag is pushed. The release's
 # auto-generated source tarball is what `ddev add-on get pressable/ddev-pressable`
-# downloads, so the git tag is the add-on's version. Cut a tag with `bin/release`.
+# downloads, so the git tag is the add-on's version. Cut a tag with
+# `.github/scripts/release.rb`.
 on:
   push:
     tags:

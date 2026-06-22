@@ -8,13 +8,13 @@
 # automatically when a `vX.Y.Z` tag is pushed. This helper computes the next
 # version from the latest tag, then creates and pushes the annotated tag.
 #
-# Usage:
-#   bin/release            # patch bump (default): 1.2.3 -> 1.2.4
-#   bin/release patch      # 1.2.3 -> 1.2.4
-#   bin/release minor      # 1.2.3 -> 1.3.0
-#   bin/release major      # 1.2.3 -> 2.0.0
-#   bin/release 1.5.0      # explicit version
-#   bin/release --dry-run minor
+# Usage (run from the repo root):
+#   .github/scripts/release.rb            # patch bump (default): 1.2.3 -> 1.2.4
+#   .github/scripts/release.rb patch      # 1.2.3 -> 1.2.4
+#   .github/scripts/release.rb minor      # 1.2.3 -> 1.3.0
+#   .github/scripts/release.rb major      # 1.2.3 -> 2.0.0
+#   .github/scripts/release.rb 1.5.0      # explicit version
+#   .github/scripts/release.rb --dry-run minor
 
 require "open3"
 
