@@ -18,7 +18,7 @@ setup() {
   export GITHUB_REPO=pressable/ddev-pressable
 
   TEST_BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
-  export BATS_LIB_PATH="${BATS_LIB_PATH}:${TEST_BREW_PREFIX}/lib:/usr/lib/bats"
+  export BATS_LIB_PATH="${BATS_LIB_PATH:-}:${TEST_BREW_PREFIX}/lib:/usr/lib/bats"
   bats_load_library bats-assert
   bats_load_library bats-file
   bats_load_library bats-support

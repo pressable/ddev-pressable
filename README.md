@@ -99,24 +99,28 @@ The same `--skip-db` / `--skip-files` flags work on `ddev push pressable`, so
    content without re-downloading a large media library.
 4. **Files-only sync.** `ddev pull pressable --skip-db` pulls new media without
    clobbering your local database state.
-5. **Selective-table pull to preserve local state.** Keep your local admin login,
-   `siteurl`, and debug settings across a refresh (see below), or skip bulky
-   log/transient tables.
+5. **Selective-table pull.** Import only a subset of tables, for example content
+   tables without bulky log or transient tables (see below). `ddev pull` replaces
+   the local database, so to leave it untouched use `--skip-db` instead.
 6. **Two-environment flow.** Pull content from production (read-only),
    develop locally, push to staging for review, and ship code through git, so the
    database and files never touch the live site.
 
 ### Selective tables (pull)
 
+`ddev pull` **replaces** the local database (it drops the existing tables before
+importing), so these variables control *what gets imported*, not what is kept.
+To leave your local database untouched, use `--skip-db` instead.
+
 Set either variable for the project, then pull. `PRESSABLE_DB_TABLES` takes
 precedence over the exclude list.
 
 ```bash
-# Pull only specific tables
+# Import only these tables (the rest of the local DB is dropped, not kept)
 ddev config --web-environment-add="PRESSABLE_DB_TABLES=wp_posts,wp_postmeta"
 
-# Or exclude tables (e.g. keep your local users and options)
-ddev config --web-environment-add="PRESSABLE_DB_EXCLUDE_TABLES=wp_users,wp_options"
+# Or import everything except these (e.g. skip bulky log/transient tables)
+ddev config --web-environment-add="PRESSABLE_DB_EXCLUDE_TABLES=wp_actionscheduler_logs,wp_actionscheduler_actions"
 ```
 
 Filtering is whole-table; row- and field-level filtering is out of scope.

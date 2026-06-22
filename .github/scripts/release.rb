@@ -48,7 +48,11 @@ local = run("git", "rev-parse", "@")
 upstream = capture("git", "rev-parse", "@{u}")
 abort "Local #{MAIN_BRANCH} is out of sync with #{REMOTE}; pull/push first." unless upstream.empty? || local == upstream
 
-latest = capture("git", "tag", "--list", "v*", "--sort=-v:refname").lines.map(&:strip).reject(&:empty?).first
+# Pick the highest STRICT semver tag, ignoring any malformed `v*` tags
+# (e.g. `v1`, `vfoo`) that would otherwise crash the major.minor.patch split.
+latest = capture("git", "tag", "--list", "v*", "--sort=-v:refname")
+         .lines.map(&:strip)
+         .find { |t| t.match?(/\Av\d+\.\d+\.\d+\z/) }
 current = latest ? latest.sub(/\Av/, "") : "0.0.0"
 major, minor, patch = current.split(".").map(&:to_i)
 
