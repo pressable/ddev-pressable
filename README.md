@@ -175,12 +175,23 @@ there is nothing to maintain here per release. To match local to the site:
 
 ## Releasing (maintainers)
 
-This add-on is versioned by git tags. `ddev add-on get pressable/ddev-pressable`
-installs the latest GitHub release, and
-[`.github/workflows/release.yml`](.github/workflows/release.yml) publishes that
-release automatically when a `vX.Y.Z` tag is pushed.
+This add-on is versioned by git tags: `ddev add-on get pressable/ddev-pressable`
+installs the latest GitHub release.
 
-Use the Ruby helper to cut a version once tests are green on `main`:
+**Automatic (default).** Every merge to `main` cuts a release once the `tests`
+workflow passes —
+[`.github/workflows/release-on-merge.yml`](.github/workflows/release-on-merge.yml)
+computes the next version, tags it, and publishes the release.
+
+- **Bump level** defaults to a patch (`1.2.3 -> 1.2.4`). For a larger bump, add a
+  `release:minor` or `release:major` label to the PR, or put `#minor` / `#major`
+  in the merge commit message.
+- **Skip** a release for a given merge with a `release:skip` label or
+  `[skip release]` in the commit message.
+
+**Manual (out-of-band).** To cut a release without a merge, run the Ruby helper
+locally; pushing the tag triggers
+[`.github/workflows/release.yml`](.github/workflows/release.yml):
 
 ```bash
 .github/scripts/release.rb            # patch bump (default), e.g. 1.2.3 -> 1.2.4
@@ -191,8 +202,7 @@ Use the Ruby helper to cut a version once tests are green on `main`:
 ```
 
 It validates that the tree is clean and on `main`, computes the next version from
-the latest tag, then creates and pushes the annotated tag, which triggers the
-release workflow.
+the latest tag, then creates and pushes the annotated tag.
 
 ## Credits
 
