@@ -99,9 +99,9 @@ The same `--skip-db` / `--skip-files` flags work on `ddev push pressable`, so
    content without re-downloading a large media library.
 4. **Files-only sync.** `ddev pull pressable --skip-db` pulls new media without
    clobbering your local database state.
-5. **Selective-table pull.** Import only a subset of tables, for example content
-   tables without bulky log or transient tables (see below). `ddev pull` replaces
-   the local database, so to leave it untouched use `--skip-db` instead.
+5. **Selective-table pull.** Exclude bulky log/transient tables from a refresh,
+   or (advanced) import only a chosen set (see below). `ddev pull` replaces the
+   local database, so use `--skip-db` if you want to leave it untouched.
 6. **Two-environment flow.** Pull content from production (read-only),
    develop locally, push to staging for review, and ship code through git, so the
    database and files never touch the live site.
@@ -112,18 +112,25 @@ The same `--skip-db` / `--skip-files` flags work on `ddev push pressable`, so
 importing), so these variables control *what gets imported*, not what is kept.
 To leave your local database untouched, use `--skip-db` instead.
 
-Set either variable for the project, then pull. `PRESSABLE_DB_TABLES` takes
-precedence over the exclude list.
+The common, safe use is to **exclude** bulky log or transient tables while
+keeping everything else:
 
 ```bash
-# Import only these tables (the rest of the local DB is dropped, not kept)
-ddev config --web-environment-add="PRESSABLE_DB_TABLES=wp_posts,wp_postmeta"
-
-# Or import everything except these (e.g. skip bulky log/transient tables)
+# Import everything except these (e.g. skip bulky log/transient tables)
 ddev config --web-environment-add="PRESSABLE_DB_EXCLUDE_TABLES=wp_actionscheduler_logs,wp_actionscheduler_actions"
 ```
 
-Filtering is whole-table; row- and field-level filtering is out of scope.
+`PRESSABLE_DB_TABLES` imports **only** the listed tables and drops the rest,
+which is advanced: a WordPress site needs its core tables to boot, and the
+post-pull URL rewrite only runs when `wp_options` is among the imported tables.
+Include the full set you need:
+
+```bash
+ddev config --web-environment-add="PRESSABLE_DB_TABLES=wp_options,wp_posts,wp_postmeta,wp_users,wp_usermeta"
+```
+
+`PRESSABLE_DB_TABLES` takes precedence over the exclude list. Filtering is
+whole-table; row- and field-level filtering is out of scope.
 
 ## Local version parity
 
