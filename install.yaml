@@ -1,0 +1,33 @@
+# DDEV add-on manifest for the Pressable provider.
+# Docs: https://ddev.readthedocs.io/en/stable/users/extend/additional-services/#sections-and-features-of-ddev-get-add-on-installyaml
+
+name: pressable
+
+# This add-on adds no Docker service — only a provider definition and a config
+# overlay — so there are no pre_install_actions and no global_files.
+
+# Files copied into the project's .ddev directory. Each carries a #ddev-generated
+# marker so a later `ddev add-on get` can replace it as long as the user has not
+# modified it.
+project_files:
+  - providers/pressable.yaml
+  - config.pressable.yaml
+
+# Validated against the running DDEV executable; install is refused below this.
+# v1.24.x is the floor for the `ddev add-on get owner/repo` shorthand and
+# per-project `--web-environment-add`. The live end-to-end validation ran on v1.25.2.
+ddev_version_constraint: '>= v1.24.0'
+
+# PRESSABLE_SSH_USER is per-site, so it cannot be baked into the committed
+# provider file — print a reminder of the per-project setup steps instead.
+post_install_actions:
+  - |
+    #ddev-description:Pressable provider next steps
+    echo "Pressable provider installed. Next steps:"
+    echo "  1. Set this project's site SSH user:"
+    echo '       ddev config --web-environment-add="PRESSABLE_SSH_USER=<site-ssh-user>"'
+    echo "  2. Load your SSH key into DDEV's agent (once per ddev session):"
+    echo "       ddev auth ssh"
+    echo "  3. ddev restart"
+    echo "  Then:  ddev pull pressable      (prod -> local)"
+    echo "         ddev push pressable      (local -> STAGING only)"

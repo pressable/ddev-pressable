@@ -1,0 +1,16 @@
+#ddev-generated
+# Pressable provider config overlay. DDEV merges every config.*.yaml into the
+# project config. This adds a post-import-db hook that rewrites production URLs
+# to the local DDEV URL after `ddev pull pressable`, so the local site does not
+# render with production URLs. Uses `wp search-replace` (serialized-data safe) —
+# never sed.
+#
+# To customize, copy this file and remove the `#ddev-generated` line above so a
+# later `ddev add-on get` will not overwrite your changes.
+hooks:
+  post-import-db:
+    - exec: |
+        OLD=$(wp option get siteurl)
+        if [ -n "$OLD" ] && [ "$OLD" != "$DDEV_PRIMARY_URL" ]; then
+          wp search-replace "$OLD" "$DDEV_PRIMARY_URL" --all-tables-with-prefix --skip-columns=guid
+        fi
