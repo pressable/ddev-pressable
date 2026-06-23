@@ -81,10 +81,17 @@ db_push_command:
   command: |
     set -eu -o pipefail
     SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${PRESSABLE_SSH_USER}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}"
-    LOCAL_URL=$(wp option get siteurl)            # local .ddev.site URL
-    REMOTE_URL=$(${SSH} 'wp option get siteurl')  # capture BEFORE import overwrites it
+    LOCAL_URL=$(wp option get siteurl)               # local .ddev.site URL (siteurl == home in DDEV)
+    REMOTE_SITEURL=$(${SSH} 'wp option get siteurl')  # capture BEFORE import overwrites it
+    REMOTE_HOME=$(${SSH} 'wp option get home')        # may differ from siteurl on split installs
     gunzip -c "${DDEV_APPROOT}/.ddev/.downloads/db.sql.gz" | ${SSH} 'wp db import -'
-    ${SSH} "wp search-replace '${LOCAL_URL}' \"${REMOTE_URL}\" --all-tables-with-prefix --skip-columns=guid"
+    # The import wrote the local URL everywhere; rewrite it back to the remote
+    # siteurl, then restore home if the remote uses a distinct home URL (otherwise
+    # home would be left pointing at siteurl).
+    ${SSH} "wp search-replace '${LOCAL_URL}' \"${REMOTE_SITEURL}\" --all-tables-with-prefix --skip-columns=guid"
+    if [ "${REMOTE_HOME}" != "${REMOTE_SITEURL}" ]; then
+      ${SSH} "wp option update home \"${REMOTE_HOME}\""
+    fi
     # REQUIRED: a raw `wp db import` writes SQL directly, bypassing WP Cloud's
     # object cache, so reads stay stale until the cache is flushed.
     ${SSH} 'wp cache flush'

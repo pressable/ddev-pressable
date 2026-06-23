@@ -10,7 +10,13 @@
 hooks:
   post-import-db:
     - exec: |
-        OLD=$(wp option get siteurl)
-        if [ -n "$OLD" ] && [ "$OLD" != "$DDEV_PRIMARY_URL" ]; then
-          wp search-replace "$OLD" "$DDEV_PRIMARY_URL" --all-tables-with-prefix --skip-columns=guid
-        fi
+        # Rewrite both siteurl and home: on a split install (home != siteurl)
+        # rewriting only siteurl would leave production URLs behind. When they
+        # are equal, the first pass already rewrote home, so the second is a
+        # no-op (guarded below) — idempotent either way.
+        for opt in siteurl home; do
+          OLD=$(wp option get "$opt")
+          if [ -n "$OLD" ] && [ "$OLD" != "$DDEV_PRIMARY_URL" ]; then
+            wp search-replace "$OLD" "$DDEV_PRIMARY_URL" --all-tables-with-prefix --skip-columns=guid
+          fi
+        done

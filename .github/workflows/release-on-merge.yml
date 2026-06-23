@@ -53,6 +53,13 @@ jobs:
           elif printf '%s' "${msg}" | grep -qE '(^|[^[:alnum:]])#minor([^[:alnum:]]|$)' || printf '%s\n' "${labels}" | grep -qx 'release:minor'; then
             bump="minor"
           fi
+          # Idempotency guard: if this commit is already released (a semver tag
+          # points at it), skip — e.g. a re-run of the `tests` workflow on the
+          # same HEAD_SHA must not cut a second release.
+          if git tag --points-at "${HEAD_SHA}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Commit ${HEAD_SHA} is already released; skipping."
+            skip="true"
+          fi
           {
             echo "bump=${bump}"
             echo "skip=${skip}"
