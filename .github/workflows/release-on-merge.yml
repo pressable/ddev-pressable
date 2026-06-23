@@ -1,0 +1,81 @@
+name: release-on-merge
+
+# Auto-cuts a release after every successful merge to `main`:
+#   merge -> the `tests` workflow runs on main -> on success this fires ->
+#   compute the next version -> tag it -> publish the GitHub release.
+#
+# Bump level (default: patch):
+#   - add a `release:minor` or `release:major` label to the merged PR, OR
+#   - put `#minor` / `#major` in the merge/squash commit message.
+# Skip a release for a merge:
+#   - add a `release:skip` label, OR put `[skip release]` in the commit message.
+#
+# It is gated on `tests` passing (via workflow_run) so a merge never ships a
+# broken release. The version logic lives in .github/scripts/release.rb (the same
+# helper used for manual releases); this workflow just selects the bump and runs it.
+on:
+  workflow_run:
+    workflows: ["tests"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    # Only when tests passed AND they ran for a push to main (not a PR test run).
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Determine bump level and skip
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          msg="$(git log -1 --format=%B "${HEAD_SHA}")"
+          labels="$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" --jq '.[].labels[].name' 2>/dev/null || true)"
+          bump="patch"
+          skip="false"
+          if printf '%s' "${msg}" | grep -qiE '\[skip release\]' || printf '%s\n' "${labels}" | grep -qx 'release:skip'; then
+            skip="true"
+          elif printf '%s' "${msg}" | grep -qE '(^|[^[:alnum:]])#major([^[:alnum:]]|$)' || printf '%s\n' "${labels}" | grep -qx 'release:major'; then
+            bump="major"
+          elif printf '%s' "${msg}" | grep -qE '(^|[^[:alnum:]])#minor([^[:alnum:]]|$)' || printf '%s\n' "${labels}" | grep -qx 'release:minor'; then
+            bump="minor"
+          fi
+          # Idempotency guard: if this commit is already released (a semver tag
+          # points at it), skip — e.g. a re-run of the `tests` workflow on the
+          # same HEAD_SHA must not cut a second release.
+          if git tag --points-at "${HEAD_SHA}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Commit ${HEAD_SHA} is already released; skipping."
+            skip="true"
+          fi
+          {
+            echo "bump=${bump}"
+            echo "skip=${skip}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Selected bump=${bump} skip=${skip}"
+
+      - name: Tag and publish release
+        if: ${{ steps.decide.outputs.skip != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Put the tested commit on a local `main` so release.rb's branch guard passes.
+          git checkout -B main
+          ruby .github/scripts/release.rb "${{ steps.decide.outputs.bump }}"
+          tag="$(git describe --tags --abbrev=0)"
+          gh release create "${tag}" --title "${tag}" --generate-notes --verify-tag

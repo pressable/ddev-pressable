@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+early_access: false
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "providers/pressable.yaml"
+      instructions: |
+        This is a DDEV provider definition. Each *_command block is Bash that
+        runs inside DDEV's web container during `ddev pull` / `ddev push`.
+        Review for: correct SSH + WP-CLI + rsync usage; serialized-data-safe URL
+        rewriting via `wp search-replace` (never sed); and push safety (files
+        push is additive with no --delete, the DB push overwrites the remote and
+        is staging-only, and the post-import `wp cache flush` is required because
+        a raw `wp db import` bypasses the hosting platform's object cache). `${SSH}` and
+        `${EXPORT_ARGS}` are intentionally unquoted so they word-split into a
+        command plus its arguments — do not flag that as SC2086.
+    - path: "config.pressable.yaml"
+      instructions: |
+        DDEV config overlay merged into the project config. The post-import-db
+        hook rewrites the production URL to the local DDEV URL after a pull, via
+        `wp search-replace`. Review the hook's correctness and idempotency.
+    - path: ".github/scripts/release.rb"
+      instructions: |
+        A plain Ruby release helper. There is no Rails and no RuboCop config in
+        this repo, so review for correctness of the git-tag / semver logic and
+        shell-out safety, not Rails or RuboCop-style conventions.
+  tools:
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    languagetool:
+      enabled: true
+    gitleaks:
+      enabled: true
+    rubocop:
+      enabled: false
+    semgrep:
+      enabled: false
+    hadolint:
+      enabled: false
+    checkov:
+      enabled: false
+chat:
+  auto_reply: true

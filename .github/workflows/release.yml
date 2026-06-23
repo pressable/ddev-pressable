@@ -1,0 +1,30 @@
+name: release
+
+# Publishes a GitHub release whenever a semver tag is pushed. The release's
+# auto-generated source tarball is what `ddev add-on get pressable/ddev-pressable`
+# downloads, so the git tag is the add-on's version. Cut a tag with
+# `.github/scripts/release.rb`.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag

@@ -1,0 +1,116 @@
+#ddev-generated
+# Pressable provider for DDEV — `ddev pull pressable` / `ddev push pressable`.
+#
+# Syncs a Pressable WordPress site's database + uploads to and from your local
+# DDEV project over the SSH / WP-CLI access your Pressable site already has.
+# No Pressable API and no platform changes — just SSH + WP-CLI + rsync.
+#
+# SETUP (see README.md for detail):
+#   1. Set the per-site SSH user for THIS project (usernames are per-site, not
+#      per-account):
+#        ddev config --web-environment-add="PRESSABLE_SSH_USER=<site-ssh-user>"
+#      Find it in the control panel (site -> SFTP/SSH), the API
+#      (GET /v1/sites/{id}/ftp), or MCP (get_ftp_account_details).
+#   2. Load your SSH key into DDEV's agent container (once per ddev session):
+#        ddev auth ssh
+#   3. ddev restart
+#
+# USAGE:
+#   ddev pull pressable                # DB + uploads down (prod -> local)
+#   ddev pull pressable --skip-files   # DB only
+#   ddev pull pressable --skip-db      # uploads only
+#   ddev push pressable                # local -> STAGING (never live!)
+#   ddev push pressable --skip-files   # DB only
+#
+# SAFETY: `ddev push` OVERWRITES the remote database. Only push to a STAGING
+# site — on a live site this destroys everything created since the dump. Push is
+# gated behind DDEV's confirmation prompt; do not bypass it.
+#
+# To customize, copy this file and remove the `#ddev-generated` line above so a
+# later `ddev add-on get` will not overwrite your changes.
+
+info_command:
+  command: |
+    echo "Pressable: ${PRESSABLE_SSH_USER:-<PRESSABLE_SSH_USER not set>}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}"
+
+auth_command:
+  command: |
+    set -eu -o pipefail
+    if [ -z "${PRESSABLE_SSH_USER:-}" ]; then
+      echo "PRESSABLE_SSH_USER is not set for this project."
+      echo "Set this site's SSH user with:"
+      echo '  ddev config --web-environment-add="PRESSABLE_SSH_USER=<site-ssh-user>"'
+      exit 1
+    fi
+    ssh-add -l >/dev/null 2>&1 || { echo "No SSH key is loaded in DDEV's ssh agent. Run 'ddev auth ssh' first."; exit 1; }
+
+db_pull_command:
+  command: |
+    set -eu -o pipefail
+    SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${PRESSABLE_SSH_USER}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}"
+    # Optional selective tables. PRESSABLE_DB_TABLES wins over the exclude list.
+    EXPORT_ARGS=""
+    if [ -n "${PRESSABLE_DB_TABLES:-}" ]; then
+      EXPORT_ARGS="--tables=${PRESSABLE_DB_TABLES}"
+    elif [ -n "${PRESSABLE_DB_EXCLUDE_TABLES:-}" ]; then
+      EXPORT_ARGS="--exclude_tables=${PRESSABLE_DB_EXCLUDE_TABLES}"
+    fi
+    # WP-CLI auto-locates the install from the SSH login home dir (no --path).
+    # `wp db export -` streams the dump to stdout; gzip it into DDEV's downloads dir.
+    ${SSH} "wp db export ${EXPORT_ARGS} -" | gzip > "${DDEV_APPROOT}/.ddev/.downloads/db.sql.gz"
+
+files_pull_command:
+  command: |
+    set -eu -o pipefail
+    mkdir -p "${DDEV_APPROOT}/.ddev/.downloads/files"
+    # The relative htdocs/wp-content/uploads path is stable across Pressable
+    # sites. DDEV imports .downloads/files into the local uploads dir afterward.
+    rsync -az --no-perms --no-owner --no-group \
+      -e 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new' \
+      "${PRESSABLE_SSH_USER}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}:htdocs/wp-content/uploads/" \
+      "${DDEV_APPROOT}/.ddev/.downloads/files/"
+
+# `ddev push` first exports the LOCAL db to .ddev/.downloads/db.sql.gz, then runs
+# this. Importing the local dump writes local *.ddev.site URLs onto the remote,
+# so capture the remote URL BEFORE the import and rewrite it back afterward with
+# `wp search-replace` (serialized-data safe — never sed).
+#
+# WARNING: this OVERWRITES the remote database. Staging sites only.
+# To disable push, delete this block and remove the `#ddev-generated` line above.
+db_push_command:
+  command: |
+    set -eu -o pipefail
+    SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${PRESSABLE_SSH_USER}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}"
+    LOCAL_URL=$(wp option get siteurl)               # local .ddev.site URL (siteurl == home in DDEV)
+    REMOTE_SITEURL=$(${SSH} 'wp option get siteurl')  # capture BEFORE import overwrites it
+    REMOTE_HOME=$(${SSH} 'wp option get home')        # may differ from siteurl on split installs
+    gunzip -c "${DDEV_APPROOT}/.ddev/.downloads/db.sql.gz" | ${SSH} 'wp db import -'
+    # The import wrote the local URL everywhere; rewrite it back to the remote
+    # siteurl, then restore home if the remote uses a distinct home URL (otherwise
+    # home would be left pointing at siteurl).
+    ${SSH} "wp search-replace '${LOCAL_URL}' \"${REMOTE_SITEURL}\" --all-tables-with-prefix --skip-columns=guid"
+    if [ "${REMOTE_HOME}" != "${REMOTE_SITEURL}" ]; then
+      ${SSH} "wp option update home \"${REMOTE_HOME}\""
+    fi
+    # REQUIRED: a raw `wp db import` writes SQL directly, bypassing the hosting
+    # platform's object cache, so reads stay stale until the cache is flushed.
+    ${SSH} 'wp cache flush'
+
+# Additive by default (no --delete): a push never deletes remote media. To mirror
+# (delete remote files missing locally), add --delete here at your own risk.
+files_push_command:
+  command: |
+    set -eu
+    # DDEV_FILES_DIR is DDEV's canonical local uploads path; it resolves to
+    # <approot>/<docroot>/wp-content/uploads, which for a wp-in-root project is
+    # exactly the validated <approot>/wp-content/uploads. Fall back to that path
+    # and refuse to run if the resolved directory is empty or missing — guarding
+    # against an unset DDEV_FILES_DIR turning the source into "/".
+    LOCAL_UPLOADS="${DDEV_FILES_DIR:-${DDEV_APPROOT}/wp-content/uploads}"
+    if [ -z "${LOCAL_UPLOADS}" ] || [ ! -d "${LOCAL_UPLOADS}" ]; then
+      echo "Local uploads directory not found (${LOCAL_UPLOADS}); nothing to push." && exit 1
+    fi
+    rsync -az --no-perms --no-owner --no-group \
+      -e 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new' \
+      "${LOCAL_UPLOADS}/" \
+      "${PRESSABLE_SSH_USER}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}:htdocs/wp-content/uploads/"
