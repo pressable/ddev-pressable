@@ -92,8 +92,8 @@ db_push_command:
     if [ "${REMOTE_HOME}" != "${REMOTE_SITEURL}" ]; then
       ${SSH} "wp option update home \"${REMOTE_HOME}\""
     fi
-    # REQUIRED: a raw `wp db import` writes SQL directly, bypassing WP Cloud's
-    # object cache, so reads stay stale until the cache is flushed.
+    # REQUIRED: a raw `wp db import` writes SQL directly, bypassing the hosting
+    # platform's object cache, so reads stay stale until the cache is flushed.
     ${SSH} 'wp cache flush'
 
 # Additive by default (no --delete): a push never deletes remote media. To mirror

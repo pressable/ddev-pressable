@@ -155,7 +155,7 @@ there is nothing to maintain here per release. To match local to the site:
   `files_push_command` rsync line in `.ddev/providers/pressable.yaml` to add
   `--delete`, and understand the risk first.
 - **Object cache after a push.** A `ddev push` imports the database with a raw
-  `wp db import`, which bypasses WP Cloud's object cache, so reads can be stale
+  `wp db import`, which bypasses the hosting platform's object cache, so reads can be stale
   until the cache is flushed. The provider runs `wp cache flush` on the remote
   automatically after every push. If you need the rendered HTML fresh immediately
   (not just the data layer), also run a full-page or edge-cache purge, for example
