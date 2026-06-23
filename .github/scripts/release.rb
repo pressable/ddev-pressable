@@ -45,7 +45,11 @@ abort "Working tree is dirty; commit or stash changes first." unless capture("gi
 
 run("git", "fetch", "--tags", REMOTE)
 local = run("git", "rev-parse", "@")
-upstream = capture("git", "rev-parse", "@{u}")
+# `--verify --quiet` prints nothing and exits non-zero when there is no upstream
+# (e.g. CI's `git checkout -B main`), so the sync check is skipped rather than
+# tripping on the error text. Without it the check aborts whenever no upstream
+# tracking is configured.
+upstream = capture("git", "rev-parse", "--verify", "--quiet", "@{u}")
 abort "Local #{MAIN_BRANCH} is out of sync with #{REMOTE}; pull/push first." unless upstream.empty? || local == upstream
 
 # Pick the highest STRICT semver tag, ignoring any malformed `v*` tags
