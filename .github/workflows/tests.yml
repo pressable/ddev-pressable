@@ -3,10 +3,12 @@ on:
   pull_request:
     paths-ignore:
       - "**.md"
+  # No paths-ignore on this push trigger, on purpose. release-on-merge.yml is
+  # triggered by this `tests` workflow completing on `main` (workflow_run), so
+  # `tests` must run for EVERY push to main — including docs-only merges — or the
+  # auto-release chain never fires and the release is silently skipped.
   push:
     branches: [ main ]
-    paths-ignore:
-      - "**.md"
 
   schedule:
     - cron: '25 08 * * *'
