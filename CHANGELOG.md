@@ -4,6 +4,19 @@ All notable changes to the DDEV Pressable provider add-on are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `post-import-db` URL rewrite after `ddev pull pressable` was a silent no-op.
+  DDEV's `wp-config-ddev.php` defines the `WP_HOME` / `WP_SITEURL` constants, so
+  `wp option get siteurl|home` returned `DDEV_PRIMARY_URL` and masked the stored
+  production value — the rewrite guard was always false and `wp search-replace`
+  never ran, leaving the local database pointed at the production/staging domain.
+  The hook now reads the raw `siteurl`/`home` values from the options table so
+  the constants cannot mask them, and additionally rewrites JSON-escaped
+  (`https:\/\/host`) occurrences that `wp search-replace` leaves untouched.
+
 ## [1.0.0] - 2026-07-06
 
 First stable release. The add-on has run its documented `ddev pull pressable` /
@@ -28,5 +41,6 @@ Initial release.
 - Tag-driven (`release.yml`) and merge-driven (`release-on-merge.yml`) release
   automation.
 
+[Unreleased]: https://github.com/pressable/ddev-pressable/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/pressable/ddev-pressable/releases/tag/v1.0.0
 [0.0.1]: https://github.com/pressable/ddev-pressable/releases/tag/v0.0.1

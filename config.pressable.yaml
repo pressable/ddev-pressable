@@ -10,13 +10,35 @@
 hooks:
   post-import-db:
     - exec: |
+        set -eu -o pipefail
+        # Read siteurl/home straight from the options table, NOT via
+        # `wp option get`. DDEV's wp-config-ddev.php defines the WP_HOME /
+        # WP_SITEURL constants, so get_option() (and therefore `wp option get`)
+        # returns DDEV_PRIMARY_URL and masks the production value the import
+        # just wrote. The raw row is the only source that still shows the URL
+        # we need to replace: with `wp option get`, OLD always equals
+        # DDEV_PRIMARY_URL, so the guard below is always false and the rewrite
+        # silently never runs, leaving the DB pointed at production.
+        #
         # Rewrite both siteurl and home: on a split install (home != siteurl)
         # rewriting only siteurl would leave production URLs behind. When they
-        # are equal, the first pass already rewrote home, so the second is a
-        # no-op (guarded below) — idempotent either way.
+        # are equal, the first pass already rewrote home in the DB, so the
+        # second iteration reads DDEV_PRIMARY_URL and is skipped — idempotent
+        # either way.
+        PREFIX=$(wp db prefix)
         for opt in siteurl home; do
-          OLD=$(wp option get "$opt")
+          OLD=$(wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = '$opt'" --skip-column-names)
           if [ -n "$OLD" ] && [ "$OLD" != "$DDEV_PRIMARY_URL" ]; then
             wp search-replace "$OLD" "$DDEV_PRIMARY_URL" --all-tables-with-prefix --skip-columns=guid
+            # search-replace unserializes PHP-serialized data but treats JSON
+            # option values as opaque strings, so values that store escaped
+            # slashes (e.g. "https:\/\/host" in nf_active_promotions, block
+            # markup, etc.) survive the pass above. Rewrite the escaped form too
+            # so JSON-encoded settings are localized as well.
+            OLD_ESC=${OLD//\//\\/}
+            NEW_ESC=${DDEV_PRIMARY_URL//\//\\/}
+            if [ "$OLD_ESC" != "$OLD" ]; then
+              wp search-replace "$OLD_ESC" "$NEW_ESC" --all-tables-with-prefix --skip-columns=guid
+            fi
           fi
         done
