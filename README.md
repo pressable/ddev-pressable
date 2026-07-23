@@ -161,15 +161,18 @@ there is nothing to maintain here per release. To match local to the site:
   automatically after every push. If you need the rendered HTML fresh immediately
   (not just the data layer), also run a full-page or edge-cache purge, for example
   `wp edge-cache` against the remote.
-- **Cross-host `home`/`siteurl` splits don't fully round-trip.** A subdirectory
-  "WordPress in its own directory" split install — where `siteurl` is a subpath
-  of `home` (e.g. `home=https://example.com`, `siteurl=https://example.com/wp`) —
-  *does* round-trip: pull keeps the subdirectory on the local URL and push
-  reverses it. But when `home` and `siteurl` live on **different hosts**
-  (e.g. `home=https://example.com`, `siteurl=https://cdn.example.net`), DDEV
-  forces a single local host, so both collapse locally and a later push can only
-  restore the `home` option, not home-based content URLs. Same-host sites (the
-  common Pressable case) round-trip losslessly.
+- **Only a `home`-plus-subpath split round-trips.** A subdirectory "WordPress in
+  its own directory" install — where `siteurl` is `home` **plus a subpath**
+  (e.g. `home=https://example.com`, `siteurl=https://example.com/wp`) — *does*
+  round-trip: pull keeps the subpath on the local URL and push reverses it,
+  reading the real local URLs back from the database so it works even when you
+  pull from one site and push to another with a different path shape. Every other
+  split collapses onto a single local URL and cannot be undone — different hosts
+  (`home=https://example.com`, `siteurl=https://cdn.example.net`), same-host
+  sibling paths (`home=…/a`, `siteurl=…/b`), and reverse splits (`home` a subpath
+  of `siteurl`) — because DDEV forces one local URL. For those, a push restores
+  the `home` option but not home-based content URLs. The common single-URL
+  Pressable site (`home == siteurl`) round-trips losslessly.
 
 ## How it works
 

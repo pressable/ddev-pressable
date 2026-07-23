@@ -56,14 +56,15 @@ hooks:
         # URL, i.e. the common single-URL case.
         NEW_HOME=$DDEV_PRIMARY_URL
         NEW_SITEURL=$DDEV_PRIMARY_URL
-        # Only transplant a subdirectory when home is non-empty AND a strict
-        # prefix of siteurl; otherwise (equal, unrelated, or empty home) both
-        # collapse to the DDEV URL.
-        if [ -n "$OLD_HOME" ]; then
-          case "$OLD_SITEURL" in
-            "$OLD_HOME"?*) NEW_SITEURL="$DDEV_PRIMARY_URL${OLD_SITEURL#"$OLD_HOME"}" ;;
-          esac
-        fi
+        # Preserve a subdirectory only when siteurl is home + "/subpath" at a real
+        # path boundary. Normalize a trailing slash on home, and require the suffix
+        # to start with "/", so a sibling host (https://example.com.evil/...) or a
+        # bare-prefix match is never mistaken for a subdir. Any other shape (equal,
+        # sibling, reverse, or empty home) collapses both bases onto the DDEV URL.
+        HOME_BASE=${OLD_HOME%/}
+        case "$OLD_SITEURL" in
+          "$HOME_BASE"/*) NEW_SITEURL="$DDEV_PRIMARY_URL/${OLD_SITEURL#"$HOME_BASE"/}" ;;
+        esac
         # Rewrite the more-specific (longer) URL first so the shorter base cannot
         # clobber the prefix of the longer one. When home == siteurl the second
         # call is a guarded no-op (its row was already rewritten) — idempotent.
