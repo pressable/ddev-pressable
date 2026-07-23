@@ -56,6 +56,12 @@ jobs:
           # Idempotency guard: if this commit is already released (a semver tag
           # points at it), skip — e.g. a re-run of the `tests` workflow on the
           # same HEAD_SHA must not cut a second release.
+          #
+          # This is also load-bearing for the CHANGELOG roll: release.rb commits
+          # the rolled changelog to main and pushes it, and that push re-triggers
+          # `tests` -> this workflow on the release commit. Because release.rb tags
+          # that same commit, the guard sees a released HEAD and skips, so the
+          # changelog roll does not cause a second release.
           if git tag --points-at "${HEAD_SHA}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Commit ${HEAD_SHA} is already released; skipping."
             skip="true"
@@ -74,7 +80,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Put the tested commit on a local `main` so release.rb's branch guard passes.
+          # Put the tested commit on a local `main` so release.rb's branch guard
+          # passes. release.rb rolls CHANGELOG.md, commits it, tags that commit,
+          # and pushes main + tag together (contents:write covers the main push);
+          # it recovers from a concurrent merge that advances main in the meantime.
           git checkout -B main
           ruby .github/scripts/release.rb "${{ steps.decide.outputs.bump }}"
           tag="$(git describe --tags --abbrev=0)"

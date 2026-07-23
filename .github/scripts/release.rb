@@ -6,7 +6,9 @@
 # DDEV add-ons are versioned by git tags: `ddev add-on get pressable/ddev-pressable`
 # installs the latest GitHub release, which .github/workflows/release.yml publishes
 # automatically when a `vX.Y.Z` tag is pushed. This helper computes the next
-# version from the latest tag, then creates and pushes the annotated tag.
+# version from the latest tag, rolls CHANGELOG.md's `[Unreleased]` section into a
+# dated `[X.Y.Z]` section, commits that, then creates and pushes the annotated tag
+# (together with main, so the tagged commit carries the rolled changelog).
 #
 # Usage (run from the repo root):
 #   .github/scripts/release.rb            # patch bump (default): 1.2.3 -> 1.2.4
@@ -35,54 +37,144 @@ def capture(*cmd)
   out.strip
 end
 
-dry_run = !ARGV.delete("--dry-run").nil?
-arg = ARGV.shift || DEFAULT_BUMP
+# Roll CHANGELOG.md for a release: rename the "## [Unreleased]" section to
+# "## [version] - date", insert a fresh empty "## [Unreleased]" above it, repoint
+# the [Unreleased] compare link to the new version, and add a [version] release
+# link (matching the existing /releases/tag/ style). Returns [new_content,
+# rolled?]. When there is no [Unreleased] section, or it is empty, returns the
+# content unchanged with rolled? = false so the caller tags without a changelog
+# commit rather than failing the release.
+def roll_changelog(content, version, date)
+  return [content, false] unless content =~ /^## \[Unreleased\][ \t]*$/
 
-branch = run("git", "rev-parse", "--abbrev-ref", "HEAD")
-abort "Refusing to release from '#{branch}'; switch to '#{MAIN_BRANCH}' first." unless branch == MAIN_BRANCH
+  body = content[/^## \[Unreleased\][ \t]*\n(.*?)(?=^## |\z)/m, 1] || ""
+  return [content, false] if body.strip.empty?
 
-abort "Working tree is dirty; commit or stash changes first." unless capture("git", "status", "--porcelain").empty?
+  base = content[%r{^\[[0-9][0-9.]*\]:\s+(https?://\S+?)/releases/tag/}, 1]
+  base ||= (slug = capture("git", "remote", "get-url", REMOTE)[%r{github\.com[:/](.+?)(?:\.git)?\z}, 1]) &&
+           "https://github.com/#{slug}"
+  abort "Cannot determine repository URL for CHANGELOG links." unless base
 
-run("git", "fetch", "--tags", REMOTE)
-local = run("git", "rev-parse", "@")
-# `--verify --quiet` prints nothing and exits non-zero when there is no upstream
-# (e.g. CI's `git checkout -B main`), so the sync check is skipped rather than
-# tripping on the error text. Without it the check aborts whenever no upstream
-# tracking is configured.
-upstream = capture("git", "rev-parse", "--verify", "--quiet", "@{u}")
-abort "Local #{MAIN_BRANCH} is out of sync with #{REMOTE}; pull/push first." unless upstream.empty? || local == upstream
+  out = content.sub(/^## \[Unreleased\][ \t]*$/, "## [Unreleased]\n\n## [#{version}] - #{date}")
 
-# Pick the highest STRICT semver tag, ignoring any malformed `v*` tags
-# (e.g. `v1`, `vfoo`) that would otherwise crash the major.minor.patch split.
-latest = capture("git", "tag", "--list", "v*", "--sort=-v:refname")
-         .lines.map(&:strip)
-         .find { |t| t.match?(/\Av\d+\.\d+\.\d+\z/) }
-current = latest ? latest.sub(/\Av/, "") : "0.0.0"
-major, minor, patch = current.split(".").map(&:to_i)
-
-next_version =
-  case arg
-  when "major" then "#{major + 1}.0.0"
-  when "minor" then "#{major}.#{minor + 1}.0"
-  when "patch" then "#{major}.#{minor}.#{patch + 1}"
-  when /\Av?\d+\.\d+\.\d+\z/ then arg.sub(/\Av/, "")
-  else abort "Unknown argument '#{arg}'. Use major | minor | patch, or an explicit X.Y.Z."
+  release_ref = "[#{version}]: #{base}/releases/tag/v#{version}"
+  if out =~ /^\[Unreleased\]:.*$/
+    out = out.sub(/^\[Unreleased\]:.*$/, "[Unreleased]: #{base}/compare/v#{version}...HEAD\n#{release_ref}")
+  elsif out =~ /^\[[^\]]+\]:\s+https?:/
+    out = out.sub(/^(\[[^\]]+\]:\s+https?:.*)$/, "#{release_ref}\n\\1")
+  else
+    out = "#{out.rstrip}\n\n#{release_ref}\n"
   end
-
-tag = "v#{next_version}"
-abort "Tag #{tag} already exists." unless capture("git", "tag", "--list", tag).empty?
-
-puts "Current version: v#{current}"
-puts "Next version:    #{tag}"
-
-if dry_run
-  puts "[dry-run] Would create and push annotated tag #{tag} to #{REMOTE}."
-  exit 0
+  [out, true]
 end
 
-run("git", "tag", "-a", tag, "-m", "Release #{tag}")
-run("git", "push", REMOTE, tag)
+# Push MAIN_BRANCH + tag atomically. If a concurrent merge advanced main between
+# our checkout and the push, the push is a non-fast-forward: fetch, rebase the
+# release commit onto the new main, move the tag to the rebased commit, and retry.
+# --atomic guarantees we never publish a tag without its main commit; we fail
+# loudly rather than leaving a half-release behind.
+def push_release(tag)
+  attempts = 0
+  loop do
+    attempts += 1
+    out, status = Open3.capture2e("git", "push", "--atomic", REMOTE, MAIN_BRANCH, tag)
+    return if status.success?
 
-puts "Pushed #{tag}. The release workflow will publish the GitHub release."
-slug = capture("git", "remote", "get-url", REMOTE)[%r{github\.com[:/](.+?)(?:\.git)?\z}, 1]
-puts "Watch: https://github.com/#{slug}/actions" if slug
+    abort "Push of #{MAIN_BRANCH} + #{tag} failed after #{attempts} attempt(s):\n#{out}" if attempts >= 3
+
+    warn "Push rejected (main may have moved); fetching, rebasing the release commit, and retrying (attempt #{attempts})."
+    run("git", "fetch", REMOTE, MAIN_BRANCH, "--tags")
+    unless capture("git", "ls-remote", "--tags", REMOTE, "refs/tags/#{tag}").empty?
+      abort "#{tag} already exists on #{REMOTE} (released by a concurrent job); aborting."
+    end
+    _, rebase_status = Open3.capture2e("git", "rebase", "#{REMOTE}/#{MAIN_BRANCH}")
+    unless rebase_status.success?
+      run("git", "rebase", "--abort")
+      abort "Could not rebase the release commit onto #{REMOTE}/#{MAIN_BRANCH} (CHANGELOG conflict?); resolve and re-run."
+    end
+    # Rebase rewrote the release commit; move the annotated tag onto the new HEAD.
+    run("git", "tag", "-f", "-a", tag, "-m", "Release #{tag}")
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  dry_run = !ARGV.delete("--dry-run").nil?
+  arg = ARGV.shift || DEFAULT_BUMP
+
+  branch = run("git", "rev-parse", "--abbrev-ref", "HEAD")
+  abort "Refusing to release from '#{branch}'; switch to '#{MAIN_BRANCH}' first." unless branch == MAIN_BRANCH
+
+  abort "Working tree is dirty; commit or stash changes first." unless capture("git", "status", "--porcelain").empty?
+
+  run("git", "fetch", "--tags", REMOTE)
+  local = run("git", "rev-parse", "@")
+  # `--verify --quiet` prints nothing and exits non-zero when there is no upstream
+  # (e.g. CI's `git checkout -B main`), so the sync check is skipped rather than
+  # tripping on the error text. Without it the check aborts whenever no upstream
+  # tracking is configured.
+  upstream = capture("git", "rev-parse", "--verify", "--quiet", "@{u}")
+  abort "Local #{MAIN_BRANCH} is out of sync with #{REMOTE}; pull/push first." unless upstream.empty? || local == upstream
+
+  # Pick the highest STRICT semver tag, ignoring any malformed `v*` tags
+  # (e.g. `v1`, `vfoo`) that would otherwise crash the major.minor.patch split.
+  latest = capture("git", "tag", "--list", "v*", "--sort=-v:refname")
+           .lines.map(&:strip)
+           .find { |t| t.match?(/\Av\d+\.\d+\.\d+\z/) }
+  current = latest ? latest.sub(/\Av/, "") : "0.0.0"
+  major, minor, patch = current.split(".").map(&:to_i)
+
+  next_version =
+    case arg
+    when "major" then "#{major + 1}.0.0"
+    when "minor" then "#{major}.#{minor + 1}.0"
+    when "patch" then "#{major}.#{minor}.#{patch + 1}"
+    when /\Av?\d+\.\d+\.\d+\z/ then arg.sub(/\Av/, "")
+    else abort "Unknown argument '#{arg}'. Use major | minor | patch, or an explicit X.Y.Z."
+    end
+
+  tag = "v#{next_version}"
+  abort "Tag #{tag} already exists." unless capture("git", "tag", "--list", tag).empty?
+
+  puts "Current version: v#{current}"
+  puts "Next version:    #{tag}"
+
+  date = Time.now.utc.strftime("%Y-%m-%d")
+  changelog_path = File.join(run("git", "rev-parse", "--show-toplevel"), "CHANGELOG.md")
+  rolled = false
+  new_changelog = nil
+  if File.exist?(changelog_path)
+    new_changelog, rolled = roll_changelog(File.read(changelog_path, encoding: "UTF-8"), next_version, date)
+  end
+
+  if dry_run
+    puts(if rolled
+           "[dry-run] Would roll CHANGELOG.md: [Unreleased] -> [#{next_version}] - #{date}, reset [Unreleased], add link refs."
+         else
+           "[dry-run] No [Unreleased] entries to roll; CHANGELOG.md left as-is."
+         end)
+    puts "[dry-run] Would #{'commit the changelog, ' if rolled}create tag #{tag}, and push " \
+         "#{rolled ? "#{MAIN_BRANCH} + #{tag}" : tag} to #{REMOTE}."
+    exit 0
+  end
+
+  if rolled
+    File.write(changelog_path, new_changelog, encoding: "UTF-8")
+    run("git", "add", "CHANGELOG.md")
+    run("git", "commit", "-m", "Release #{tag}")
+  end
+
+  run("git", "tag", "-a", tag, "-m", "Release #{tag}")
+
+  # When we rolled the changelog, the tag points at that new commit, so main and
+  # the tag must ship together (atomically, with concurrent-merge recovery). With
+  # nothing to roll, main is unchanged and already on the remote — push only the tag.
+  if rolled
+    push_release(tag)
+  else
+    run("git", "push", REMOTE, tag)
+  end
+
+  puts "Pushed #{tag}#{" and #{MAIN_BRANCH}" if rolled}. The release workflow will publish the GitHub release."
+  slug = capture("git", "remote", "get-url", REMOTE)[%r{github\.com[:/](.+?)(?:\.git)?\z}, 1]
+  puts "Watch: https://github.com/#{slug}/actions" if slug
+end
