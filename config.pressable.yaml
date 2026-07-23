@@ -27,7 +27,10 @@ hooks:
         # either way.
         PREFIX=$(wp db prefix)
         for opt in siteurl home; do
-          OLD=$(wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = '$opt'" --skip-column-names)
+          # --batch --skip-column-names: raw, tab-separated, header-less output
+          # (no interactive ASCII-table borders); safe here since siteurl/home
+          # are plain URLs with no chars batch-mode would escape.
+          OLD=$(wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = '$opt'" --batch --skip-column-names)
           if [ -n "$OLD" ] && [ "$OLD" != "$DDEV_PRIMARY_URL" ]; then
             wp search-replace "$OLD" "$DDEV_PRIMARY_URL" --all-tables-with-prefix --skip-columns=guid
             # search-replace unserializes PHP-serialized data but treats JSON
