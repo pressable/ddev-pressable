@@ -86,7 +86,7 @@ jobs:
           # passes. release.rb rolls CHANGELOG.md, commits it, tags that commit,
           # and pushes main + tag together (contents:write covers the main push).
           # If a concurrent merge advances main mid-run it defers the release to the
-          # next commit rather than rebasing onto an untested head (see ENG-6095).
+          # next commit rather than rebasing onto an untested head.
           git checkout -B main
           ruby .github/scripts/release.rb "${{ steps.decide.outputs.bump }}"
           tag="$(git describe --tags --abbrev=0)"

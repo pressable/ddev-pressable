@@ -52,8 +52,8 @@ hooks:
         # the remote siteurl had under home, so a "WordPress in its own directory"
         # split install (siteurl = home + /subdir, e.g. /wp) is preserved locally
         # instead of being flattened onto home — which is what lets `ddev push`
-        # reverse it later (ENG-6094). When home == siteurl this is just the DDEV
-        # URL, i.e. the common single-URL case.
+        # reverse it later. When home == siteurl this is just the DDEV URL, i.e.
+        # the common single-URL case.
         NEW_HOME=$DDEV_PRIMARY_URL
         NEW_SITEURL=$DDEV_PRIMARY_URL
         # Preserve a subdirectory only when siteurl is home + "/subpath" at a real

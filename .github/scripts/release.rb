@@ -81,9 +81,9 @@ end
 # commit is not a no-op — no tag was pushed, so it would just re-lose the race and
 # re-abort; the next tested descendant is what proceeds.)
 #
-# Known limitation (ENG-6095): the deferred commit's own bump level is not carried
-# forward, so a `release:major`/`minor` commit that loses this race can downgrade
-# to the next commit's bump. Rare, and recoverable with `release.rb major|minor`.
+# Known limitation: the deferred commit's own bump level is not carried forward,
+# so a `release:major`/`minor` commit that loses this race can downgrade to the
+# next commit's bump. Rare, and recoverable with `release.rb major|minor` by hand.
 def push_release(tag)
   out, status = Open3.capture2e("git", "push", "--atomic", REMOTE, MAIN_BRANCH, tag)
   return if status.success?
