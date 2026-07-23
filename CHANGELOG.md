@@ -19,7 +19,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   push hook mirrors that escaped-slash rewrite so a pull → push round-trip
   leaves no local URL on the remote, and the pull hook now refuses to run if
   `DDEV_PRIMARY_URL` is empty (which would otherwise blank the production URL
-  across all tables).
+  across all tables). The push hook likewise validates the local/remote URLs
+  (non-empty, plain `http(s)`, shell-safe) and fails closed before overwriting
+  the remote database.
 
 ## [1.0.0] - 2026-07-06
 
