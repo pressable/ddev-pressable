@@ -38,8 +38,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Release automation now rolls this changelog when it tags: `release.rb` renames
   `[Unreleased]` to the new dated `[X.Y.Z]` section, opens a fresh `[Unreleased]`,
   updates the link refs, commits that, and pushes `main` + the tag together
-  (recovering from a concurrent merge). Releases no longer ship with changes
-  stranded under `[Unreleased]`.
+  atomically. If a concurrent merge advances `main` mid-release it defers to the
+  next commit's release (rather than rebasing onto an untested head), and the
+  re-run idempotency guard keys off tag ancestry (`--contains`). Releases no
+  longer ship with changes stranded under `[Unreleased]`.
 
 ## [1.0.0] - 2026-07-06
 

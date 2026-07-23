@@ -53,16 +53,18 @@ jobs:
           elif printf '%s' "${msg}" | grep -qE '(^|[^[:alnum:]])#minor([^[:alnum:]]|$)' || printf '%s\n' "${labels}" | grep -qx 'release:minor'; then
             bump="minor"
           fi
-          # Idempotency guard: if this commit is already released (a semver tag
-          # points at it), skip — e.g. a re-run of the `tests` workflow on the
-          # same HEAD_SHA must not cut a second release.
+          # Idempotency guard: skip if this commit is already part of a release.
+          # Use `--contains`, NOT `--points-at`: release.rb rolls the CHANGELOG
+          # into a NEW commit on top of HEAD_SHA and tags THAT commit, so the tag
+          # no longer points AT the tested commit — but the tested commit is an
+          # ancestor of (contained in) the release commit, so `--contains` matches.
+          # `--points-at` would miss it, and a re-run of the `tests` workflow on
+          # the original HEAD_SHA would then wrongly cut a second release.
           #
-          # This is also load-bearing for the CHANGELOG roll: release.rb commits
-          # the rolled changelog to main and pushes it, and that push re-triggers
-          # `tests` -> this workflow on the release commit. Because release.rb tags
-          # that same commit, the guard sees a released HEAD and skips, so the
-          # changelog roll does not cause a second release.
-          if git tag --points-at "${HEAD_SHA}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          # This also covers the changelog-push re-trigger: pushing the release
+          # commit re-runs `tests` -> this workflow on it, and its own tag makes
+          # the guard skip. Both the rerun and the re-trigger paths are handled.
+          if git tag --contains "${HEAD_SHA}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Commit ${HEAD_SHA} is already released; skipping."
             skip="true"
           fi

@@ -68,33 +68,24 @@ def roll_changelog(content, version, date)
   [out, true]
 end
 
-# Push MAIN_BRANCH + tag atomically. If a concurrent merge advanced main between
-# our checkout and the push, the push is a non-fast-forward: fetch, rebase the
-# release commit onto the new main, move the tag to the rebased commit, and retry.
-# --atomic guarantees we never publish a tag without its main commit; we fail
-# loudly rather than leaving a half-release behind.
+# Push MAIN_BRANCH + tag atomically. --atomic guarantees the tag never lands
+# without its main commit (and vice versa), so a release is never half-published.
+#
+# If a concurrent merge advanced main between our checkout and the push, the push
+# is rejected as a non-fast-forward. We deliberately do NOT rebase the release
+# commit onto that newer head and retag: that head may still be under test (or
+# later fail), and release-on-merge only cuts a release once `tests` passes — so
+# rebasing onto it would risk publishing an unverified tree. Instead we abort.
+# Nothing is lost: the release-on-merge idempotency guard makes a re-run of this
+# commit a no-op, and the next tested commit's own release run rolls these
+# still-`[Unreleased]` entries into its release.
 def push_release(tag)
-  attempts = 0
-  loop do
-    attempts += 1
-    out, status = Open3.capture2e("git", "push", "--atomic", REMOTE, MAIN_BRANCH, tag)
-    return if status.success?
+  out, status = Open3.capture2e("git", "push", "--atomic", REMOTE, MAIN_BRANCH, tag)
+  return if status.success?
 
-    abort "Push of #{MAIN_BRANCH} + #{tag} failed after #{attempts} attempt(s):\n#{out}" if attempts >= 3
-
-    warn "Push rejected (main may have moved); fetching, rebasing the release commit, and retrying (attempt #{attempts})."
-    run("git", "fetch", REMOTE, MAIN_BRANCH, "--tags")
-    unless capture("git", "ls-remote", "--tags", REMOTE, "refs/tags/#{tag}").empty?
-      abort "#{tag} already exists on #{REMOTE} (released by a concurrent job); aborting."
-    end
-    _, rebase_status = Open3.capture2e("git", "rebase", "#{REMOTE}/#{MAIN_BRANCH}")
-    unless rebase_status.success?
-      run("git", "rebase", "--abort")
-      abort "Could not rebase the release commit onto #{REMOTE}/#{MAIN_BRANCH} (CHANGELOG conflict?); resolve and re-run."
-    end
-    # Rebase rewrote the release commit; move the annotated tag onto the new HEAD.
-    run("git", "tag", "-f", "-a", tag, "-m", "Release #{tag}")
-  end
+  abort "Push of #{MAIN_BRANCH} + #{tag} was rejected (main likely advanced during the " \
+        "release job). Refusing to rebase onto an unverified head — deferring these changes " \
+        "to the next tested commit's release rather than publishing an untested tree.\n#{out}"
 end
 
 if $PROGRAM_NAME == __FILE__
