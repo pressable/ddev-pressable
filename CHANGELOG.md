@@ -4,6 +4,45 @@ All notable changes to the DDEV Pressable provider add-on are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `post-import-db` URL rewrite after `ddev pull pressable` was a silent no-op.
+  DDEV's `wp-config-ddev.php` defines the `WP_HOME` / `WP_SITEURL` constants, so
+  `wp option get siteurl|home` returned `DDEV_PRIMARY_URL` and masked the stored
+  production value — the rewrite guard was always false and `wp search-replace`
+  never ran, leaving the local database pointed at the production/staging domain.
+  The hook now reads the raw `siteurl`/`home` values from the options table so
+  the constants cannot mask them, and additionally rewrites JSON-escaped
+  (`https:\/\/host`) occurrences that `wp search-replace` leaves untouched. The
+  push hook mirrors that escaped-slash rewrite so a pull → push round-trip
+  leaves no local URL on the remote, and the pull hook now refuses to run if
+  `DDEV_PRIMARY_URL` is empty (which would otherwise blank the production URL
+  across all tables). The push hook likewise validates the local/remote URLs
+  (non-empty, plain `http(s)`, shell-safe) and fails closed before overwriting
+  the remote database.
+- Subdirectory "WordPress in its own directory" installs — where `siteurl` is
+  `home` plus a subpath (e.g. `home=https://example.com`,
+  `siteurl=https://example.com/wp`) — now round-trip through `ddev pull` /
+  `ddev push`. Pull preserves the subpath on the local URL (matched at a real
+  `/` boundary) instead of flattening both bases onto one; push reads the raw
+  local `siteurl`/`home` back from the options table and reverses the mapping
+  most-specific URL first, so it stays correct even when you pull from one site
+  and push to another with a different path shape. Every other split (different
+  hosts, same-host sibling paths, reverse splits) still collapses locally; that
+  is documented in the README "Safety" section.
+
+### Changed
+
+- Release automation now rolls this changelog when it tags: `release.rb` renames
+  `[Unreleased]` to the new dated `[X.Y.Z]` section, opens a fresh `[Unreleased]`,
+  updates the link refs, commits that, and pushes `main` + the tag together
+  atomically. If a concurrent merge advances `main` mid-release it defers to the
+  next commit's release (rather than rebasing onto an untested head), and the
+  re-run idempotency guard keys off tag ancestry (`--contains`). Releases no
+  longer ship with changes stranded under `[Unreleased]`.
+
 ## [1.0.0] - 2026-07-06
 
 First stable release. The add-on has run its documented `ddev pull pressable` /
@@ -28,5 +67,6 @@ Initial release.
 - Tag-driven (`release.yml`) and merge-driven (`release-on-merge.yml`) release
   automation.
 
+[Unreleased]: https://github.com/pressable/ddev-pressable/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/pressable/ddev-pressable/releases/tag/v1.0.0
 [0.0.1]: https://github.com/pressable/ddev-pressable/releases/tag/v0.0.1

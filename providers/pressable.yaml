@@ -81,17 +81,72 @@ db_push_command:
   command: |
     set -eu -o pipefail
     SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${PRESSABLE_SSH_USER}@${PRESSABLE_SSH_HOST:-ssh.pressable.com}"
-    LOCAL_URL=$(wp option get siteurl)               # local .ddev.site URL (siteurl == home in DDEV)
+    PREFIX=$(wp db prefix)
+    # Read the RAW local siteurl/home from the options table, NOT `wp option get`
+    # (masked by DDEV's WP_HOME/WP_SITEURL constants) and NOT reconstructed from
+    # the push target: these are the exact URLs the just-exported dump contains,
+    # so reversing them is correct no matter how the target site's paths are laid
+    # out (a /subdir pull source pushed to a root staging site, etc.). --batch
+    # --skip-column-names: raw, header-less output with no ASCII borders.
+    LOCAL_HOME=$(wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = 'home'" --batch --skip-column-names)
+    LOCAL_SITEURL=$(wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = 'siteurl'" --batch --skip-column-names)
     REMOTE_SITEURL=$(${SSH} 'wp option get siteurl')  # capture BEFORE import overwrites it
     REMOTE_HOME=$(${SSH} 'wp option get home')        # may differ from siteurl on split installs
+    # Fail closed BEFORE the import/rewrite. An empty operand would make a pass
+    # `wp search-replace "$FROM" ""` and blank a URL across the remote DB; a URL
+    # carrying shell metacharacters could break out of the SSH command strings
+    # below. Require plain http(s) URLs built only from shell-safe characters —
+    # this covers every real siteurl/home and makes the interpolation below
+    # injection-proof without a two-layer quoting helper.
+    for u in "${LOCAL_HOME}" "${LOCAL_SITEURL}" "${REMOTE_SITEURL}" "${REMOTE_HOME}"; do
+      case "${u}" in
+        http://* | https://*) ;;
+        *) echo "push: refusing to rewrite — unexpected site URL: '${u}'" >&2; exit 1 ;;
+      esac
+      case "${u}" in
+        *[!A-Za-z0-9.:/_-]*) echo "push: refusing to rewrite — unsafe characters in site URL: '${u}'" >&2; exit 1 ;;
+      esac
+    done
     gunzip -c "${DDEV_APPROOT}/.ddev/.downloads/db.sql.gz" | ${SSH} 'wp db import -'
-    # The import wrote the local URL everywhere; rewrite it back to the remote
-    # siteurl, then restore home if the remote uses a distinct home URL (otherwise
-    # home would be left pointing at siteurl).
-    ${SSH} "wp search-replace '${LOCAL_URL}' \"${REMOTE_SITEURL}\" --all-tables-with-prefix --skip-columns=guid"
+    # Rewrite one local URL back to its remote counterpart across the remote DB:
+    # the plain form, then the JSON-escaped-slash form ("https:\/\/host") that
+    # search-replace treats as opaque text. Mirror of the pull hook's replace_url;
+    # keep the two in sync. URLs were validated shell-safe above.
+    remote_replace() {
+      local from=$1 to=$2 from_esc to_esc
+      if [ -z "$from" ] || [ "$from" = "$to" ]; then return 0; fi
+      ${SSH} "wp search-replace '$from' \"$to\" --all-tables-with-prefix --skip-columns=guid"
+      from_esc=${from//\//\\/}
+      to_esc=${to//\//\\/}
+      if [ "$from_esc" != "$from" ]; then
+        ${SSH} "wp search-replace '$from_esc' \"$to_esc\" --all-tables-with-prefix --skip-columns=guid"
+      fi
+    }
+    # The import wrote local URLs everywhere; map each local base back to its
+    # remote counterpart, more-specific (longer) first so the shorter base cannot
+    # clobber the longer one's prefix. This reverses the pull mapping, so a
+    # subdirectory split install (siteurl = home + /subdir) round-trips intact.
+    if [ ${#LOCAL_SITEURL} -ge ${#LOCAL_HOME} ]; then
+      remote_replace "${LOCAL_SITEURL}" "${REMOTE_SITEURL}"
+      remote_replace "${LOCAL_HOME}" "${REMOTE_HOME}"
+    else
+      remote_replace "${LOCAL_HOME}" "${REMOTE_HOME}"
+      remote_replace "${LOCAL_SITEURL}" "${REMOTE_SITEURL}"
+    fi
+    # Belt-and-suspenders for the home option row: when the local URLs collapsed
+    # onto one base (home and siteurl on different hosts — see LIMITATION below),
+    # the passes above cannot tell home- from siteurl-based occurrences apart, so
+    # explicitly restore the remote home value on its option row.
     if [ "${REMOTE_HOME}" != "${REMOTE_SITEURL}" ]; then
       ${SSH} "wp option update home \"${REMOTE_HOME}\""
     fi
+    # LIMITATION: only a subdirectory split where siteurl is home PLUS a subpath
+    # (e.g. home=https://x.com siteurl=https://x.com/wp) round-trips — pull keeps
+    # the subpath locally and push reverses it. Every other split collapses to one
+    # local base and cannot be undone: different hosts (home and siteurl on
+    # separate hosts/subdomains), same-host SIBLING paths (home=/a, siteurl=/b),
+    # and reverse splits (home a subpath of siteurl). For those, push restores the
+    # home option row but not home-based content URLs. See README "Safety".
     # REQUIRED: a raw `wp db import` writes SQL directly, bypassing the hosting
     # platform's object cache, so reads stay stale until the cache is flushed.
     ${SSH} 'wp cache flush'
