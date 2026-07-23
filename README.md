@@ -22,9 +22,9 @@ platform. Under the hood it uses SSH, WP-CLI (`wp db export` / `wp db import` /
 
 Site URLs are rewritten automatically in both directions with `wp search-replace`
 (serialized-data safe), so the local site renders at its `*.ddev.site` URL and a
-pushed site renders at its own URL (one caveat for subdirectory split installs —
-see [Safety](#safety)). Your theme and plugin code is **not** synced. That comes
-from your own git repository, the way DDEV intends.
+pushed site renders at its own URL (one caveat for cross-host `home`/`siteurl`
+splits — see [Safety](#safety)). Your theme and plugin code is **not** synced.
+That comes from your own git repository, the way DDEV intends.
 
 ## Requirements
 
@@ -161,15 +161,15 @@ there is nothing to maintain here per release. To match local to the site:
   automatically after every push. If you need the rendered HTML fresh immediately
   (not just the data layer), also run a full-page or edge-cache purge, for example
   `wp edge-cache` against the remote.
-- **URL round-trip assumes `home` and `siteurl` share one base.** Both pull and
-  push localize URLs with `wp search-replace`. On a subdirectory "WordPress in
-  its own directory" split install — where `siteurl` is a subpath of `home`
-  (e.g. `home=https://example.com`, `siteurl=https://example.com/wp`) — pull
-  must collapse both onto the single local DDEV URL, so a later push can no
-  longer tell home-based URLs from siteurl-based ones and restores only the
-  `home` option, leaving some content URLs under the `siteurl` base. When `home`
-  and `siteurl` share the same base (the common Pressable case), the round trip
-  is lossless.
+- **Cross-host `home`/`siteurl` splits don't fully round-trip.** A subdirectory
+  "WordPress in its own directory" split install — where `siteurl` is a subpath
+  of `home` (e.g. `home=https://example.com`, `siteurl=https://example.com/wp`) —
+  *does* round-trip: pull keeps the subdirectory on the local URL and push
+  reverses it. But when `home` and `siteurl` live on **different hosts**
+  (e.g. `home=https://example.com`, `siteurl=https://cdn.example.net`), DDEV
+  forces a single local host, so both collapse locally and a later push can only
+  restore the `home` option, not home-based content URLs. Same-host sites (the
+  common Pressable case) round-trip losslessly.
 
 ## How it works
 

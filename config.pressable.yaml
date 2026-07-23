@@ -12,41 +12,65 @@ hooks:
     - exec: |
         set -eu -o pipefail
         # DDEV always populates DDEV_PRIMARY_URL, but guard anyway: a
-        # set-but-empty value slips past `set -u`, and the guard below
-        # ("$OLD" != "") would then run `wp search-replace "$OLD" ""`, blanking
-        # every production URL across all tables. Refuse rather than corrupt.
+        # set-but-empty value slips past `set -u` and would turn the rewrites
+        # below into `wp search-replace "$OLD" ""`, blanking every production
+        # URL across all tables. Refuse rather than corrupt.
         [ -n "${DDEV_PRIMARY_URL:-}" ] || { echo "post-import-db: DDEV_PRIMARY_URL is empty; refusing to rewrite URLs." >&2; exit 1; }
+
+        PREFIX=$(wp db prefix)
         # Read siteurl/home straight from the options table, NOT via
         # `wp option get`. DDEV's wp-config-ddev.php defines the WP_HOME /
         # WP_SITEURL constants, so get_option() (and therefore `wp option get`)
-        # returns DDEV_PRIMARY_URL and masks the production value the import
-        # just wrote. The raw row is the only source that still shows the URL
-        # we need to replace: with `wp option get`, OLD always equals
-        # DDEV_PRIMARY_URL, so the guard below is always false and the rewrite
-        # silently never runs, leaving the DB pointed at production.
-        #
-        # Rewrite both siteurl and home: on a split install (home != siteurl)
-        # rewriting only siteurl would leave production URLs behind. When they
-        # are equal, the first pass already rewrote home in the DB, so the
-        # second iteration reads DDEV_PRIMARY_URL and is skipped — idempotent
-        # either way.
-        PREFIX=$(wp db prefix)
-        for opt in siteurl home; do
-          # --batch --skip-column-names: raw, tab-separated, header-less output
-          # (no interactive ASCII-table borders); safe here since siteurl/home
-          # are plain URLs with no chars batch-mode would escape.
-          OLD=$(wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = '$opt'" --batch --skip-column-names)
-          if [ -n "$OLD" ] && [ "$OLD" != "$DDEV_PRIMARY_URL" ]; then
-            wp search-replace "$OLD" "$DDEV_PRIMARY_URL" --all-tables-with-prefix --skip-columns=guid
-            # search-replace unserializes PHP-serialized data but treats JSON
-            # option values as opaque strings, so values that store escaped
-            # slashes (e.g. "https:\/\/host" in nf_active_promotions, block
-            # markup, etc.) survive the pass above. Rewrite the escaped form too
-            # so JSON-encoded settings are localized as well.
-            OLD_ESC=${OLD//\//\\/}
-            NEW_ESC=${DDEV_PRIMARY_URL//\//\\/}
-            if [ "$OLD_ESC" != "$OLD" ]; then
-              wp search-replace "$OLD_ESC" "$NEW_ESC" --all-tables-with-prefix --skip-columns=guid
-            fi
+        # returns the local DDEV URL and masks the production value the import
+        # just wrote. The raw row is the only source that still shows the URL we
+        # need to replace: via `wp option get`, OLD would always equal the local
+        # URL, the guard would always be false, and the rewrite would silently
+        # never run — leaving the DB pointed at production (the original bug).
+        # --batch --skip-column-names: raw, header-less output with no ASCII
+        # borders (siteurl/home are plain URLs, nothing batch-mode escapes).
+        raw_option() {
+          wp db query "SELECT option_value FROM ${PREFIX}options WHERE option_name = '$1'" --batch --skip-column-names
+        }
+        # Rewrite one URL everywhere: the plain form, then the JSON-escaped-slash
+        # form ("https:\/\/host"). search-replace walks PHP-serialized data but
+        # treats JSON option values (nf_active_promotions, block markup, ...) as
+        # opaque strings, so the escaped form needs its own pass.
+        replace_url() {
+          local from=$1 to=$2 from_esc to_esc
+          if [ -z "$from" ] || [ "$from" = "$to" ]; then return 0; fi
+          wp search-replace "$from" "$to" --all-tables-with-prefix --skip-columns=guid
+          from_esc=${from//\//\\/}
+          to_esc=${to//\//\\/}
+          if [ "$from_esc" != "$from" ]; then
+            wp search-replace "$from_esc" "$to_esc" --all-tables-with-prefix --skip-columns=guid
           fi
-        done
+        }
+
+        OLD_HOME=$(raw_option home)
+        OLD_SITEURL=$(raw_option siteurl)
+        # Local targets. home -> the DDEV URL. siteurl keeps whatever subdirectory
+        # the remote siteurl had under home, so a "WordPress in its own directory"
+        # split install (siteurl = home + /subdir, e.g. /wp) is preserved locally
+        # instead of being flattened onto home — which is what lets `ddev push`
+        # reverse it later (ENG-6094). When home == siteurl this is just the DDEV
+        # URL, i.e. the common single-URL case.
+        NEW_HOME=$DDEV_PRIMARY_URL
+        NEW_SITEURL=$DDEV_PRIMARY_URL
+        # Only transplant a subdirectory when home is non-empty AND a strict
+        # prefix of siteurl; otherwise (equal, unrelated, or empty home) both
+        # collapse to the DDEV URL.
+        if [ -n "$OLD_HOME" ]; then
+          case "$OLD_SITEURL" in
+            "$OLD_HOME"?*) NEW_SITEURL="$DDEV_PRIMARY_URL${OLD_SITEURL#"$OLD_HOME"}" ;;
+          esac
+        fi
+        # Rewrite the more-specific (longer) URL first so the shorter base cannot
+        # clobber the prefix of the longer one. When home == siteurl the second
+        # call is a guarded no-op (its row was already rewritten) — idempotent.
+        if [ ${#OLD_SITEURL} -ge ${#OLD_HOME} ]; then
+          replace_url "$OLD_SITEURL" "$NEW_SITEURL"
+          replace_url "$OLD_HOME" "$NEW_HOME"
+        else
+          replace_url "$OLD_HOME" "$NEW_HOME"
+          replace_url "$OLD_SITEURL" "$NEW_SITEURL"
+        fi

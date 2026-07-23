@@ -22,6 +22,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   across all tables). The push hook likewise validates the local/remote URLs
   (non-empty, plain `http(s)`, shell-safe) and fails closed before overwriting
   the remote database.
+- Subdirectory "WordPress in its own directory" split installs (`siteurl` a
+  subpath of `home`, e.g. `home=https://example.com`,
+  `siteurl=https://example.com/wp`) now round-trip through `ddev pull` /
+  `ddev push`. Pull preserves the subdirectory on the local URL instead of
+  flattening both bases onto one, and push reverses the mapping most-specific
+  URL first. Only splits where `home` and `siteurl` are on *different hosts*
+  remain lossy (DDEV forces a single local host); this is documented in the
+  README "Safety" section.
 
 ## [1.0.0] - 2026-07-06
 
