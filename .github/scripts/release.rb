@@ -76,9 +76,14 @@ end
 # commit onto that newer head and retag: that head may still be under test (or
 # later fail), and release-on-merge only cuts a release once `tests` passes — so
 # rebasing onto it would risk publishing an unverified tree. Instead we abort.
-# Nothing is lost: the release-on-merge idempotency guard makes a re-run of this
-# commit a no-op, and the next tested commit's own release run rolls these
-# still-`[Unreleased]` entries into its release.
+# No untested tree is ever published; the next tested commit's own release run
+# rolls these still-`[Unreleased]` entries into its release. (A re-run of THIS
+# commit is not a no-op — no tag was pushed, so it would just re-lose the race and
+# re-abort; the next tested descendant is what proceeds.)
+#
+# Known limitation (ENG-6095): the deferred commit's own bump level is not carried
+# forward, so a `release:major`/`minor` commit that loses this race can downgrade
+# to the next commit's bump. Rare, and recoverable with `release.rb major|minor`.
 def push_release(tag)
   out, status = Open3.capture2e("git", "push", "--atomic", REMOTE, MAIN_BRANCH, tag)
   return if status.success?
@@ -157,8 +162,9 @@ if $PROGRAM_NAME == __FILE__
   run("git", "tag", "-a", tag, "-m", "Release #{tag}")
 
   # When we rolled the changelog, the tag points at that new commit, so main and
-  # the tag must ship together (atomically, with concurrent-merge recovery). With
-  # nothing to roll, main is unchanged and already on the remote — push only the tag.
+  # the tag must ship together — push_release does that atomically, and defers on a
+  # concurrent-merge race rather than rebasing (see its comment). With nothing to
+  # roll, main is unchanged and already on the remote — push only the tag.
   if rolled
     push_release(tag)
   else

@@ -84,8 +84,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # Put the tested commit on a local `main` so release.rb's branch guard
           # passes. release.rb rolls CHANGELOG.md, commits it, tags that commit,
-          # and pushes main + tag together (contents:write covers the main push);
-          # it recovers from a concurrent merge that advances main in the meantime.
+          # and pushes main + tag together (contents:write covers the main push).
+          # If a concurrent merge advances main mid-run it defers the release to the
+          # next commit rather than rebasing onto an untested head (see ENG-6095).
           git checkout -B main
           ruby .github/scripts/release.rb "${{ steps.decide.outputs.bump }}"
           tag="$(git describe --tags --abbrev=0)"
