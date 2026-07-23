@@ -22,8 +22,9 @@ platform. Under the hood it uses SSH, WP-CLI (`wp db export` / `wp db import` /
 
 Site URLs are rewritten automatically in both directions with `wp search-replace`
 (serialized-data safe), so the local site renders at its `*.ddev.site` URL and a
-pushed site renders at its own URL. Your theme and plugin code is **not** synced.
-That comes from your own git repository, the way DDEV intends.
+pushed site renders at its own URL (one caveat for subdirectory split installs —
+see [Safety](#safety)). Your theme and plugin code is **not** synced. That comes
+from your own git repository, the way DDEV intends.
 
 ## Requirements
 
@@ -160,6 +161,15 @@ there is nothing to maintain here per release. To match local to the site:
   automatically after every push. If you need the rendered HTML fresh immediately
   (not just the data layer), also run a full-page or edge-cache purge, for example
   `wp edge-cache` against the remote.
+- **URL round-trip assumes `home` and `siteurl` share one base.** Both pull and
+  push localize URLs with `wp search-replace`. On a subdirectory "WordPress in
+  its own directory" split install — where `siteurl` is a subpath of `home`
+  (e.g. `home=https://example.com`, `siteurl=https://example.com/wp`) — pull
+  must collapse both onto the single local DDEV URL, so a later push can no
+  longer tell home-based URLs from siteurl-based ones and restores only the
+  `home` option, leaving some content URLs under the `siteurl` base. When `home`
+  and `siteurl` share the same base (the common Pressable case), the round trip
+  is lossless.
 
 ## How it works
 

@@ -89,9 +89,25 @@ db_push_command:
     # siteurl, then restore home if the remote uses a distinct home URL (otherwise
     # home would be left pointing at siteurl).
     ${SSH} "wp search-replace '${LOCAL_URL}' \"${REMOTE_SITEURL}\" --all-tables-with-prefix --skip-columns=guid"
+    # Mirror of the pull hook's escaped-slash pass (config.pressable.yaml): JSON
+    # option/content values store slashes escaped ("https:\/\/host"), which the
+    # plain rewrite above cannot match. Rewrite the escaped local URL back to the
+    # escaped remote URL too, so a pull -> push round-trip leaves no local URL
+    # (plain OR escaped) on the remote. Keep these two passes in sync.
+    LOCAL_ESC=${LOCAL_URL//\//\\/}
+    REMOTE_ESC=${REMOTE_SITEURL//\//\\/}
+    if [ "${LOCAL_ESC}" != "${LOCAL_URL}" ]; then
+      ${SSH} "wp search-replace '${LOCAL_ESC}' \"${REMOTE_ESC}\" --all-tables-with-prefix --skip-columns=guid"
+    fi
     if [ "${REMOTE_HOME}" != "${REMOTE_SITEURL}" ]; then
       ${SSH} "wp option update home \"${REMOTE_HOME}\""
     fi
+    # LIMITATION: the round-trip assumes the site's home and siteurl share one
+    # base (the common Pressable case). On a subdirectory split install (siteurl
+    # a subpath of home, e.g. home=https://x.com siteurl=https://x.com/wp), pull
+    # collapses both to the single DDEV_PRIMARY_URL, so push cannot tell
+    # home-based from siteurl-based URLs apart and restores only the home option
+    # row — content URLs return under the siteurl base. See README "Safety".
     # REQUIRED: a raw `wp db import` writes SQL directly, bypassing the hosting
     # platform's object cache, so reads stay stale until the cache is flushed.
     ${SSH} 'wp cache flush'

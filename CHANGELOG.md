@@ -15,7 +15,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   never ran, leaving the local database pointed at the production/staging domain.
   The hook now reads the raw `siteurl`/`home` values from the options table so
   the constants cannot mask them, and additionally rewrites JSON-escaped
-  (`https:\/\/host`) occurrences that `wp search-replace` leaves untouched.
+  (`https:\/\/host`) occurrences that `wp search-replace` leaves untouched. The
+  push hook mirrors that escaped-slash rewrite so a pull → push round-trip
+  leaves no local URL on the remote, and the pull hook now refuses to run if
+  `DDEV_PRIMARY_URL` is empty (which would otherwise blank the production URL
+  across all tables).
 
 ## [1.0.0] - 2026-07-06
 

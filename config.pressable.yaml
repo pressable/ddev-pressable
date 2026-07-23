@@ -11,6 +11,11 @@ hooks:
   post-import-db:
     - exec: |
         set -eu -o pipefail
+        # DDEV always populates DDEV_PRIMARY_URL, but guard anyway: a
+        # set-but-empty value slips past `set -u`, and the guard below
+        # ("$OLD" != "") would then run `wp search-replace "$OLD" ""`, blanking
+        # every production URL across all tables. Refuse rather than corrupt.
+        [ -n "${DDEV_PRIMARY_URL:-}" ] || { echo "post-import-db: DDEV_PRIMARY_URL is empty; refusing to rewrite URLs." >&2; exit 1; }
         # Read siteurl/home straight from the options table, NOT via
         # `wp option get`. DDEV's wp-config-ddev.php defines the WP_HOME /
         # WP_SITEURL constants, so get_option() (and therefore `wp option get`)
